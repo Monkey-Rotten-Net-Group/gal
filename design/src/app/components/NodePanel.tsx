@@ -1,4 +1,4 @@
-import { Plus, MessageCircle, GitBranch, Image, User } from 'lucide-react';
+import { MessageCircle, GitBranch, Image, User } from 'lucide-react';
 import { StoryNode } from './StoryEditor';
 
 interface NodePanelProps {
@@ -31,7 +31,7 @@ const nodeTypeColors = {
 
 export function NodePanel({ nodes, selectedNode, onSelectNode, onAddNode }: NodePanelProps) {
   return (
-    <div className="w-80 border-r border-border bg-card/30 backdrop-blur-sm flex flex-col">
+    <div className="w-64 border-r border-border bg-card/30 backdrop-blur-sm flex flex-col">
       <div className="p-4 border-b border-border">
         <h3 className="text-sm uppercase tracking-widest text-muted-foreground mb-3" style={{ fontFamily: 'var(--font-mono)' }}>
           节点列表
@@ -69,7 +69,7 @@ export function NodePanel({ nodes, selectedNode, onSelectNode, onAddNode }: Node
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-4 space-y-2">
+      <div className="flex-1 overflow-y-auto p-3 space-y-2">
         {nodes.map((node) => {
           const Icon = nodeTypeIcons[node.type];
           const isSelected = selectedNode?.id === node.id;
@@ -94,7 +94,7 @@ export function NodePanel({ nodes, selectedNode, onSelectNode, onAddNode }: Node
                       {nodeTypeLabels[node.type]}
                     </span>
                   </div>
-                  <div className="font-medium truncate mb-1" style={{ fontFamily: 'var(--font-display)' }}>
+                  <div className="font-medium truncate mb-1 text-sm" style={{ fontFamily: 'var(--font-display)' }}>
                     {node.title}
                   </div>
                   <div className="text-xs text-muted-foreground line-clamp-2">
@@ -112,7 +112,7 @@ export function NodePanel({ nodes, selectedNode, onSelectNode, onAddNode }: Node
         })}
       </div>
 
-      <div className="p-4 border-t border-border">
+      <div className="p-3 border-t border-border">
         <div className="text-xs text-muted-foreground" style={{ fontFamily: 'var(--font-mono)' }}>
           共 {nodes.length} 个节点
         </div>

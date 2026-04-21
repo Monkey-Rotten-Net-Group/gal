@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useNavigate, useParams } from 'react-router';
 import { DndProvider } from 'react-dnd';
 import { HTML5Backend } from 'react-dnd-html5-backend';
-import { Sparkles, Save, Play, Plus, Settings, Image, ArrowLeft } from 'lucide-react';
+import { Sparkles, Save, Play, Settings, Image, ArrowLeft, Send } from 'lucide-react';
 import { NodePanel } from './NodePanel';
 import { FlowCanvas } from './FlowCanvas';
 import { DetailPanel } from './DetailPanel';
@@ -16,6 +16,12 @@ export interface StoryNode {
   connections: string[];
   character?: string;
   choices?: { text: string; next: string }[];
+}
+
+interface AiMessage {
+  id: string;
+  role: 'user' | 'assistant';
+  content: string;
 }
 
 export function StoryEditor() {
@@ -54,7 +60,14 @@ export function StoryEditor() {
   ]);
 
   const [selectedNode, setSelectedNode] = useState<StoryNode | null>(null);
-  const [aiPanelOpen, setAiPanelOpen] = useState(false);
+  const [aiInput, setAiInput] = useState('');
+  const [aiMessages, setAiMessages] = useState<AiMessage[]>([
+    {
+      id: '1',
+      role: 'assistant',
+      content: '你好！我是 AI 创作助手。我可以帮你生成对话、场景描述、选项分支，或者续写剧情。请告诉我你需要什么帮助？',
+    },
+  ]);
 
   const updateNode = (id: string, updates: Partial<StoryNode>) => {
     setNodes(nodes.map(node => node.id === id ? { ...node, ...updates } : node));
@@ -71,6 +84,22 @@ export function StoryEditor() {
     };
     setNodes([...nodes, newNode]);
     setSelectedNode(newNode);
+  };
+
+  const handleAiSend = () => {
+    if (!aiInput.trim()) return;
+    const userMsg: AiMessage = {
+      id: Date.now().toString(),
+      role: 'user',
+      content: aiInput,
+    };
+    const assistantMsg: AiMessage = {
+      id: (Date.now() + 1).toString(),
+      role: 'assistant',
+      content: '正在思考中...',
+    };
+    setAiMessages([...aiMessages, userMsg, assistantMsg]);
+    setAiInput('');
   };
 
   return (
@@ -107,13 +136,6 @@ export function StoryEditor() {
                 <Image className="w-4 h-4" />
                 <span>素材库</span>
               </button>
-              <button
-                onClick={() => setAiPanelOpen(!aiPanelOpen)}
-                className="px-4 py-2 rounded-md bg-primary text-primary-foreground flex items-center gap-2 hover:opacity-90 transition-all hover:shadow-[0_0_20px_rgba(212,165,116,0.4)]"
-              >
-                <Sparkles className="w-4 h-4" />
-                <span>AI 助手</span>
-              </button>
               <button className="p-2 rounded-md hover:bg-secondary/50 transition-colors">
                 <Settings className="w-5 h-5" />
               </button>
@@ -129,65 +151,26 @@ export function StoryEditor() {
         </header>
 
         {/* Main Content */}
-        <div className="flex-1 flex overflow-hidden relative">
-          {/* AI Panel Overlay */}
-          {aiPanelOpen && (
-            <div className="absolute inset-0 bg-background/80 backdrop-blur-sm z-50 flex items-center justify-center">
-              <div className="w-full max-w-2xl bg-card border border-primary/30 rounded-lg shadow-[0_0_40px_rgba(212,165,116,0.3)] p-8 animate-in fade-in duration-300">
-                <div className="flex items-center gap-3 mb-6">
-                  <div className="p-3 rounded-full bg-primary/20">
-                    <Sparkles className="w-6 h-6 text-primary animate-pulse" />
-                  </div>
-                  <h2 className="text-2xl" style={{ fontFamily: 'var(--font-display)' }}>AI 创作助手</h2>
-                </div>
+        <div className="flex-1 flex overflow-hidden">
+          {/* Left Panel - Node List + Detail */}
+          <div className="flex">
+            <NodePanel
+              nodes={nodes}
+              selectedNode={selectedNode}
+              onSelectNode={setSelectedNode}
+              onAddNode={addNode}
+            />
 
-                <div className="space-y-4">
-                  <div>
-                    <label className="block text-sm text-muted-foreground mb-2">输入你的创作想法</label>
-                    <textarea
-                      className="w-full h-32 bg-input-background border border-border rounded-md px-4 py-3 focus:outline-none focus:ring-2 focus:ring-primary/50 resize-none"
-                      placeholder="例如：生成一段关于主角在雨中独自思考人生的场景..."
-                    />
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-3">
-                    <button className="px-4 py-3 rounded-md bg-secondary hover:bg-secondary/70 transition-all border border-border">
-                      生成对话
-                    </button>
-                    <button className="px-4 py-3 rounded-md bg-secondary hover:bg-secondary/70 transition-all border border-border">
-                      生成场景
-                    </button>
-                    <button className="px-4 py-3 rounded-md bg-secondary hover:bg-secondary/70 transition-all border border-border">
-                      生成选项
-                    </button>
-                    <button className="px-4 py-3 rounded-md bg-secondary hover:bg-secondary/70 transition-all border border-border">
-                      续写剧情
-                    </button>
-                  </div>
-
-                  <div className="flex gap-3 pt-4">
-                    <button className="flex-1 px-4 py-2 rounded-md bg-primary text-primary-foreground hover:opacity-90 transition-all">
-                      生成
-                    </button>
-                    <button
-                      onClick={() => setAiPanelOpen(false)}
-                      className="px-4 py-2 rounded-md border border-border hover:bg-secondary/50 transition-colors"
-                    >
-                      取消
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Left Panel - Node List */}
-          <NodePanel
-            nodes={nodes}
-            selectedNode={selectedNode}
-            onSelectNode={setSelectedNode}
-            onAddNode={addNode}
-          />
+            {selectedNode && (
+              <DetailPanel
+                node={selectedNode}
+                onUpdateNode={(updates) => {
+                  updateNode(selectedNode.id, updates);
+                }}
+                onClose={() => setSelectedNode(null)}
+              />
+            )}
+          </div>
 
           {/* Center - Flow Canvas */}
           <FlowCanvas
@@ -197,15 +180,81 @@ export function StoryEditor() {
             onUpdateNode={updateNode}
           />
 
-          {/* Right Panel - Details */}
-          <DetailPanel
-            node={selectedNode}
-            onUpdateNode={(updates) => {
-              if (selectedNode) {
-                updateNode(selectedNode.id, updates);
-              }
-            }}
-          />
+          {/* Right Panel - AI Chat */}
+          <div className="w-80 border-l border-border bg-card/30 backdrop-blur-sm flex flex-col">
+            <div className="p-4 border-b border-border flex items-center gap-3">
+              <div className="p-2 rounded-full bg-primary/20">
+                <Sparkles className="w-4 h-4 text-primary" />
+              </div>
+              <h3 className="text-sm uppercase tracking-widest text-muted-foreground" style={{ fontFamily: 'var(--font-mono)' }}>
+                AI 创作助手
+              </h3>
+            </div>
+
+            {/* Quick Actions */}
+            <div className="p-3 border-b border-border">
+              <div className="grid grid-cols-2 gap-2">
+                <button className="px-2 py-1.5 rounded text-xs bg-secondary hover:bg-secondary/70 transition-all border border-border">
+                  生成对话
+                </button>
+                <button className="px-2 py-1.5 rounded text-xs bg-secondary hover:bg-secondary/70 transition-all border border-border">
+                  生成场景
+                </button>
+                <button className="px-2 py-1.5 rounded text-xs bg-secondary hover:bg-secondary/70 transition-all border border-border">
+                  生成选项
+                </button>
+                <button className="px-2 py-1.5 rounded text-xs bg-secondary hover:bg-secondary/70 transition-all border border-border">
+                  续写剧情
+                </button>
+              </div>
+            </div>
+
+            {/* Messages */}
+            <div className="flex-1 overflow-y-auto p-4 space-y-4">
+              {aiMessages.map((msg) => (
+                <div
+                  key={msg.id}
+                  className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
+                >
+                  <div
+                    className={`max-w-[85%] px-3 py-2 rounded-lg text-sm ${
+                      msg.role === 'user'
+                        ? 'bg-primary text-primary-foreground'
+                        : 'bg-secondary border border-border'
+                    }`}
+                    style={{ fontFamily: 'var(--font-body)' }}
+                  >
+                    {msg.content}
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* Input */}
+            <div className="p-3 border-t border-border">
+              <div className="flex gap-2">
+                <textarea
+                  value={aiInput}
+                  onChange={(e) => setAiInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                      e.preventDefault();
+                      handleAiSend();
+                    }
+                  }}
+                  className="flex-1 h-20 bg-input-background border border-border rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/50 resize-none"
+                  placeholder="输入你的创作想法..."
+                />
+              </div>
+              <button
+                onClick={handleAiSend}
+                className="mt-2 w-full px-3 py-2 rounded-md bg-primary text-primary-foreground hover:opacity-90 transition-all flex items-center justify-center gap-2 text-sm"
+              >
+                <Send className="w-3.5 h-3.5" />
+                <span>发送</span>
+              </button>
+            </div>
+          </div>
         </div>
       </div>
     </DndProvider>

@@ -1,25 +1,13 @@
 import { StoryNode } from './StoryEditor';
-import { Sparkles, Trash2, Plus } from 'lucide-react';
+import { Sparkles, Trash2, Plus, X } from 'lucide-react';
 
 interface DetailPanelProps {
-  node: StoryNode | null;
+  node: StoryNode;
   onUpdateNode: (updates: Partial<StoryNode>) => void;
+  onClose: () => void;
 }
 
-export function DetailPanel({ node, onUpdateNode }: DetailPanelProps) {
-  if (!node) {
-    return (
-      <div className="w-96 border-l border-border bg-card/30 backdrop-blur-sm flex items-center justify-center">
-        <div className="text-center px-8">
-          <div className="text-5xl mb-4 opacity-20">✍️</div>
-          <p className="text-muted-foreground" style={{ fontFamily: 'var(--font-display)' }}>
-            选择一个节点以编辑详情
-          </p>
-        </div>
-      </div>
-    );
-  }
-
+export function DetailPanel({ node, onUpdateNode, onClose }: DetailPanelProps) {
   const addChoice = () => {
     const choices = node.choices || [];
     onUpdateNode({
@@ -40,17 +28,25 @@ export function DetailPanel({ node, onUpdateNode }: DetailPanelProps) {
   };
 
   return (
-    <div className="w-96 border-l border-border bg-card/30 backdrop-blur-sm flex flex-col overflow-hidden">
-      <div className="p-6 border-b border-border">
-        <h3 className="text-sm uppercase tracking-widest text-muted-foreground mb-2" style={{ fontFamily: 'var(--font-mono)' }}>
-          节点详情
-        </h3>
-        <div className="text-xl" style={{ fontFamily: 'var(--font-display)' }}>
-          {node.title}
+    <div className="w-80 border-r border-border bg-card/30 backdrop-blur-sm flex flex-col overflow-hidden">
+      <div className="p-4 border-b border-border flex items-center justify-between">
+        <div>
+          <h3 className="text-sm uppercase tracking-widest text-muted-foreground mb-1" style={{ fontFamily: 'var(--font-mono)' }}>
+            节点详情
+          </h3>
+          <div className="text-lg" style={{ fontFamily: 'var(--font-display)' }}>
+            {node.title}
+          </div>
         </div>
+        <button
+          onClick={onClose}
+          className="p-1.5 rounded-md hover:bg-secondary/50 transition-colors"
+        >
+          <X className="w-4 h-4 text-muted-foreground" />
+        </button>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-6 space-y-6">
+      <div className="flex-1 overflow-y-auto p-4 space-y-5">
         {/* Type */}
         <div>
           <label className="block text-xs uppercase tracking-widest text-muted-foreground mb-2" style={{ fontFamily: 'var(--font-mono)' }}>
@@ -59,7 +55,7 @@ export function DetailPanel({ node, onUpdateNode }: DetailPanelProps) {
           <select
             value={node.type}
             onChange={(e) => onUpdateNode({ type: e.target.value as StoryNode['type'] })}
-            className="w-full px-3 py-2 bg-input-background border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-primary/50"
+            className="w-full px-3 py-2 bg-input-background border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-primary/50 text-sm"
           >
             <option value="dialogue">对话</option>
             <option value="choice">选项</option>
@@ -77,7 +73,7 @@ export function DetailPanel({ node, onUpdateNode }: DetailPanelProps) {
             type="text"
             value={node.title}
             onChange={(e) => onUpdateNode({ title: e.target.value })}
-            className="w-full px-3 py-2 bg-input-background border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-primary/50"
+            className="w-full px-3 py-2 bg-input-background border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-primary/50 text-sm"
             style={{ fontFamily: 'var(--font-display)' }}
           />
         </div>
@@ -92,7 +88,7 @@ export function DetailPanel({ node, onUpdateNode }: DetailPanelProps) {
               type="text"
               value={node.character || ''}
               onChange={(e) => onUpdateNode({ character: e.target.value })}
-              className="w-full px-3 py-2 bg-input-background border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-primary/50"
+              className="w-full px-3 py-2 bg-input-background border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-primary/50 text-sm"
               placeholder="角色名称"
             />
           </div>
@@ -111,7 +107,7 @@ export function DetailPanel({ node, onUpdateNode }: DetailPanelProps) {
           <textarea
             value={node.content}
             onChange={(e) => onUpdateNode({ content: e.target.value })}
-            className="w-full h-40 px-3 py-2 bg-input-background border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-primary/50 resize-none"
+            className="w-full h-32 px-3 py-2 bg-input-background border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-primary/50 resize-none text-sm"
             placeholder={
               node.type === 'dialogue'
                 ? '输入对话内容...'
@@ -177,7 +173,7 @@ export function DetailPanel({ node, onUpdateNode }: DetailPanelProps) {
               ))}
 
               {(!node.choices || node.choices.length === 0) && (
-                <div className="text-center py-8 text-muted-foreground text-sm">
+                <div className="text-center py-6 text-muted-foreground text-sm">
                   点击上方添加选项分支
                 </div>
               )}
@@ -186,7 +182,7 @@ export function DetailPanel({ node, onUpdateNode }: DetailPanelProps) {
         )}
 
         {/* Metadata */}
-        <div className="pt-6 border-t border-border">
+        <div className="pt-4 border-t border-border">
           <div className="text-xs uppercase tracking-widest text-muted-foreground mb-3" style={{ fontFamily: 'var(--font-mono)' }}>
             元数据
           </div>
@@ -210,11 +206,11 @@ export function DetailPanel({ node, onUpdateNode }: DetailPanelProps) {
       </div>
 
       {/* Actions */}
-      <div className="p-6 border-t border-border space-y-2">
-        <button className="w-full px-4 py-2 bg-primary text-primary-foreground rounded-md hover:opacity-90 transition-all hover:shadow-[0_0_15px_rgba(212,165,116,0.3)]">
+      <div className="p-4 border-t border-border space-y-2">
+        <button className="w-full px-4 py-2 bg-primary text-primary-foreground rounded-md hover:opacity-90 transition-all hover:shadow-[0_0_15px_rgba(212,165,116,0.3)] text-sm">
           应用更改
         </button>
-        <button className="w-full px-4 py-2 bg-destructive/10 text-destructive rounded-md hover:bg-destructive/20 transition-colors">
+        <button className="w-full px-4 py-2 bg-destructive/10 text-destructive rounded-md hover:bg-destructive/20 transition-colors text-sm">
           删除节点
         </button>
       </div>
