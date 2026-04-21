@@ -1,9 +1,9 @@
-import { createBrowserRouter } from "react-router";
+import { createHashRouter } from "react-router";
 import { StoryEditor } from "./components/StoryEditor";
 import { AssetManager } from "./components/AssetManager";
 import { ProjectHome } from "./components/ProjectHome";
 
-export const router = createBrowserRouter([
+export const router = createHashRouter([
   {
     path: "/",
     Component: ProjectHome,

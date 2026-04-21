@@ -1,1 +1,7 @@
 /target
+/dist
+/node_modules
+/design/node_modules
+/design/dist
+/src-tauri/target
+/.codex

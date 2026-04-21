@@ -1,0 +1,32 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "gal",
+  "version": "0.1.0",
+  "identifier": "com.misaki.gal",
+  "build": {
+    "beforeDevCommand": "pnpm --dir design dev",
+    "beforeBuildCommand": "pnpm --dir design build",
+    "devUrl": "http://localhost:1420",
+    "frontendDist": "../design/dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "gal",
+        "width": 1440,
+        "height": 900,
+        "minWidth": 1100,
+        "minHeight": 720,
+        "resizable": true
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all"
+  }
+}

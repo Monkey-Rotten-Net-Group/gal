@@ -1,0 +1,25 @@
+{
+  "name": "gal",
+  "private": true,
+  "version": "0.1.0",
+  "scripts": {
+    "dev": "pnpm --dir design dev",
+    "build": "pnpm --dir design build",
+    "preview": "pnpm --dir design preview",
+    "tauri": "tauri",
+    "tauri:dev": "tauri dev",
+    "tauri:build": "tauri build"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.10.1"
+  },
+  "pnpm": {
+    "overrides": {
+      "vite": "6.3.5"
+    },
+    "onlyBuiltDependencies": [
+      "@tailwindcss/oxide",
+      "esbuild"
+    ]
+  }
+}
