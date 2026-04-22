@@ -1,19 +1,29 @@
-import { useState, useCallback, useEffect } from 'react';
-import { useNavigate, useParams } from 'react-router';
+import { useState, useCallback, useEffect, useRef } from 'react';
+import { useNavigate, useParams, useSearchParams } from 'react-router';
 import { DndProvider } from 'react-dnd';
 import { HTML5Backend } from 'react-dnd-html5-backend';
-import { Sparkles, Save, Play, Settings, Image, ArrowLeft, Send, Upload, Download, FileText } from 'lucide-react';
+import {
+  Sparkles, Save, Play, Settings, Image, ArrowLeft, Send,
+  Upload, Download, FileText, FolderOpen, FilePlus, Check, Loader2,
+} from 'lucide-react';
+import { open as openDialog, save as saveDialog } from '@tauri-apps/plugin-dialog';
 import { NodePanel } from './NodePanel';
 import { FlowCanvas } from './FlowCanvas';
 import { DetailPanel } from './DetailPanel';
 import type { WebGalNode, WebGalCommandType } from '../lib/webgal-types';
-import { parseScene, serializeScene } from '../lib/webgal-ipc';
+import {
+  parseScene, serializeScene, saveScene, loadScene,
+  openProject, getScenePath, createScene,
+  type ProjectInfo,
+} from '../lib/webgal-ipc';
 
 interface AiMessage {
   id: string;
   role: 'user' | 'assistant';
   content: string;
 }
+
+type SaveStatus = 'idle' | 'saving' | 'saved' | 'error';
 
 const DEMO_SCRIPT = `; 序章 —— 宁静的午后
 changeBg:afternoon_park.webp -next;
@@ -29,13 +39,23 @@ choose:友好地打招呼:branch_friendly.txt|保持沉默:branch_silent.txt;
 export function StoryEditor() {
   const navigate = useNavigate();
   const { projectId } = useParams();
+  const [searchParams] = useSearchParams();
 
+  // Project state
+  const [projectPath, setProjectPath] = useState<string | null>(null);
+  const [projectInfo, setProjectInfo] = useState<ProjectInfo | null>(null);
+  const [currentSceneName, setCurrentSceneName] = useState('start.txt');
+  const [dirty, setDirty] = useState(false);
+  const [saveStatus, setSaveStatus] = useState<SaveStatus>('idle');
+
+  // Editor state
   const [nodes, setNodes] = useState<WebGalNode[]>([]);
   const [selectedNode, setSelectedNode] = useState<WebGalNode | null>(null);
   const [scriptSource, setScriptSource] = useState(DEMO_SCRIPT);
   const [showScript, setShowScript] = useState(false);
   const [loading, setLoading] = useState(true);
 
+  // AI state
   const [aiInput, setAiInput] = useState('');
   const [aiMessages, setAiMessages] = useState<AiMessage[]>([
     {
@@ -45,24 +65,74 @@ export function StoryEditor() {
     },
   ]);
 
-  // Initial parse via backend
-  useEffect(() => {
-    parseScene(DEMO_SCRIPT).then((parsed) => {
-      setNodes(parsed);
-      setLoading(false);
-    });
-  }, []);
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout>>();
 
-  // Sync nodes → script text (debounced via backend)
+  // ---------------------------------------------------------------------------
+  // Initialization: try to load project from localStorage or URL params
+  // ---------------------------------------------------------------------------
+  useEffect(() => {
+    const init = async () => {
+      // Try to restore project path from localStorage
+      const storedPath = localStorage.getItem(`project-path-${projectId}`);
+      const sceneName = searchParams.get('scene') || 'start.txt';
+      setCurrentSceneName(sceneName);
+
+      if (storedPath) {
+        try {
+          const info = await openProject(storedPath);
+          setProjectPath(storedPath);
+          setProjectInfo(info);
+
+          // Load the scene file
+          const scenePath = await getScenePath(storedPath, sceneName);
+          try {
+            const loaded = await loadScene(scenePath);
+            setNodes(loaded);
+            const text = await serializeScene(loaded);
+            setScriptSource(text);
+          } catch {
+            // Scene doesn't exist yet, start with empty
+            const parsed = await parseScene(DEMO_SCRIPT);
+            setNodes(parsed);
+            setScriptSource(DEMO_SCRIPT);
+          }
+        } catch {
+          // Stored path no longer valid — fall back to demo
+          const parsed = await parseScene(DEMO_SCRIPT);
+          setNodes(parsed);
+        }
+      } else {
+        // No project path — just load demo script
+        const parsed = await parseScene(DEMO_SCRIPT);
+        setNodes(parsed);
+      }
+
+      setLoading(false);
+    };
+    init();
+  }, [projectId, searchParams]);
+
+  // ---------------------------------------------------------------------------
+  // Sync nodes → script text
+  // ---------------------------------------------------------------------------
   const syncScript = useCallback(async (nextNodes: WebGalNode[]) => {
     try {
       const text = await serializeScene(nextNodes);
       setScriptSource(text);
     } catch {
-      // Serialization error — keep stale script text
+      // keep stale
     }
   }, []);
 
+  // Mark dirty on any node change
+  const markDirty = useCallback(() => {
+    setDirty(true);
+    setSaveStatus('idle');
+  }, []);
+
+  // ---------------------------------------------------------------------------
+  // Node CRUD
+  // ---------------------------------------------------------------------------
   const updateNode = useCallback((id: string, updates: Partial<WebGalNode>) => {
     setNodes(prev => {
       const next = prev.map(n => n.id === id ? { ...n, ...updates } : n);
@@ -70,21 +140,20 @@ export function StoryEditor() {
       return next;
     });
     setSelectedNode(prev => prev && prev.id === id ? { ...prev, ...updates } : prev);
-  }, [syncScript]);
+    markDirty();
+  }, [syncScript, markDirty]);
 
   const deleteNode = useCallback((id: string) => {
     setNodes(prev => {
       const next = prev
         .filter(n => n.id !== id)
-        .map(n => ({
-          ...n,
-          connections: n.connections.filter(c => c !== id),
-        }));
+        .map(n => ({ ...n, connections: n.connections.filter(c => c !== id) }));
       syncScript(next);
       return next;
     });
     setSelectedNode(null);
-  }, [syncScript]);
+    markDirty();
+  }, [syncScript, markDirty]);
 
   const addNode = useCallback((type: WebGalCommandType) => {
     setNodes(prev => {
@@ -101,7 +170,6 @@ export function StoryEditor() {
         },
         connections: [],
       };
-
       if (type === 'dialogue') newNode.character = '';
       if (type === 'choose') newNode.choices = [{ text: '选项1', target: '' }];
       if (type === 'intro') newNode.introLines = [''];
@@ -118,15 +186,150 @@ export function StoryEditor() {
           };
         }
       }
-
       updated.push(newNode);
       syncScript(updated);
       setSelectedNode(newNode);
       return updated;
     });
-  }, [syncScript]);
+    markDirty();
+  }, [syncScript, markDirty]);
 
-  // Import .txt via backend parse
+  // ---------------------------------------------------------------------------
+  // Save
+  // ---------------------------------------------------------------------------
+  const handleSave = useCallback(async () => {
+    setSaveStatus('saving');
+    try {
+      if (projectPath) {
+        // Save to project's game/scene/ directory
+        const scenePath = await getScenePath(projectPath, currentSceneName);
+        await saveScene(scenePath, nodes);
+      } else {
+        // No project open — prompt user to pick a save location
+        const selected = await saveDialog({
+          title: '保存场景文件',
+          defaultPath: currentSceneName,
+          filters: [{ name: 'WebGAL Scene', extensions: ['txt'] }],
+        });
+        if (!selected) {
+          setSaveStatus('idle');
+          return;
+        }
+        await saveScene(selected, nodes);
+      }
+      setDirty(false);
+      setSaveStatus('saved');
+      // Reset status after 2s
+      if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = setTimeout(() => setSaveStatus('idle'), 2000);
+    } catch (e) {
+      console.error('Save failed:', e);
+      setSaveStatus('error');
+      if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = setTimeout(() => setSaveStatus('idle'), 3000);
+    }
+  }, [projectPath, currentSceneName, nodes]);
+
+  // Ctrl+S / Cmd+S shortcut
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 's') {
+        e.preventDefault();
+        handleSave();
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [handleSave]);
+
+  // ---------------------------------------------------------------------------
+  // Open project folder
+  // ---------------------------------------------------------------------------
+  const handleOpenProject = useCallback(async () => {
+    const selected = await openDialog({
+      title: '选择 WebGAL 项目文件夹',
+      directory: true,
+    });
+    if (!selected) return;
+
+    try {
+      const info = await openProject(selected);
+      setProjectPath(selected);
+      setProjectInfo(info);
+      localStorage.setItem(`project-path-${projectId}`, selected);
+
+      // Load start.txt or first available scene
+      const sceneName = info.scenes.includes('start.txt')
+        ? 'start.txt'
+        : info.scenes[0] || 'start.txt';
+      setCurrentSceneName(sceneName);
+
+      const scenePath = await getScenePath(selected, sceneName);
+      try {
+        const loaded = await loadScene(scenePath);
+        setNodes(loaded);
+        const text = await serializeScene(loaded);
+        setScriptSource(text);
+        setDirty(false);
+      } catch {
+        // empty scene
+        setNodes([]);
+        setScriptSource('');
+      }
+    } catch (e) {
+      console.error('Open project failed:', e);
+    }
+  }, [projectId]);
+
+  // ---------------------------------------------------------------------------
+  // Switch scene within project
+  // ---------------------------------------------------------------------------
+  const handleSwitchScene = useCallback(async (sceneName: string) => {
+    if (!projectPath) return;
+    // Auto-save current if dirty
+    if (dirty) {
+      const scenePath = await getScenePath(projectPath, currentSceneName);
+      await saveScene(scenePath, nodes);
+    }
+
+    setCurrentSceneName(sceneName);
+    const scenePath = await getScenePath(projectPath, sceneName);
+    try {
+      const loaded = await loadScene(scenePath);
+      setNodes(loaded);
+      const text = await serializeScene(loaded);
+      setScriptSource(text);
+      setSelectedNode(null);
+      setDirty(false);
+    } catch {
+      setNodes([]);
+      setScriptSource('');
+    }
+  }, [projectPath, currentSceneName, dirty, nodes]);
+
+  // ---------------------------------------------------------------------------
+  // Create new scene
+  // ---------------------------------------------------------------------------
+  const handleNewScene = useCallback(async () => {
+    if (!projectPath) return;
+    const name = prompt('新场景文件名 (不含 .txt 后缀):');
+    if (!name) return;
+    try {
+      await createScene(projectPath, name);
+      // Refresh project info
+      const info = await openProject(projectPath);
+      setProjectInfo(info);
+      // Switch to new scene
+      const sceneName = name.endsWith('.txt') ? name : `${name}.txt`;
+      await handleSwitchScene(sceneName);
+    } catch (e) {
+      console.error('Create scene failed:', e);
+    }
+  }, [projectPath, handleSwitchScene]);
+
+  // ---------------------------------------------------------------------------
+  // Import / Export / Apply script
+  // ---------------------------------------------------------------------------
   const handleImport = useCallback(() => {
     const input = document.createElement('input');
     input.type = 'file';
@@ -139,30 +342,33 @@ export function StoryEditor() {
       const parsed = await parseScene(text);
       setNodes(parsed);
       setSelectedNode(null);
+      markDirty();
     };
     input.click();
-  }, []);
+  }, [markDirty]);
 
-  // Export via backend serialize
   const handleExport = useCallback(async () => {
     const text = await serializeScene(nodes);
     const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = 'scene.txt';
+    a.download = currentSceneName;
     a.click();
     URL.revokeObjectURL(url);
-  }, [nodes]);
+  }, [nodes, currentSceneName]);
 
-  // Apply script text edits via backend parse
   const handleApplyScript = useCallback(async () => {
     const parsed = await parseScene(scriptSource);
     setNodes(parsed);
     setSelectedNode(null);
     setShowScript(false);
-  }, [scriptSource]);
+    markDirty();
+  }, [scriptSource, markDirty]);
 
+  // ---------------------------------------------------------------------------
+  // AI chat
+  // ---------------------------------------------------------------------------
   const handleAiSend = () => {
     if (!aiInput.trim()) return;
     const userMsg: AiMessage = { id: Date.now().toString(), role: 'user', content: aiInput };
@@ -171,15 +377,19 @@ export function StoryEditor() {
     setAiInput('');
   };
 
+  // ---------------------------------------------------------------------------
+  // Render
+  // ---------------------------------------------------------------------------
   if (loading) {
     return (
       <div className="h-full flex items-center justify-center bg-background">
-        <div className="text-muted-foreground text-sm" style={{ fontFamily: 'var(--font-mono)' }}>
-          正在加载场景...
-        </div>
+        <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
       </div>
     );
   }
+
+  const gameName = projectInfo?.config?.Game_name
+    || (projectId === '1' ? '苍穹之下的誓言' : projectId === '2' ? '雨夜侦探' : projectId === '3' ? '夏日回忆' : '新项目');
 
   return (
     <DndProvider backend={HTML5Backend}>
@@ -200,11 +410,47 @@ export function StoryEditor() {
               </h1>
               <div className="h-6 w-px bg-border" />
               <span className="text-sm text-muted-foreground" style={{ fontFamily: 'var(--font-mono)' }}>
-                {projectId === '1' ? '苍穹之下的誓言' : projectId === '2' ? '雨夜侦探' : projectId === '3' ? '夏日回忆' : '新项目'}
+                {gameName}
               </span>
+
+              {/* Scene selector */}
+              {projectInfo && projectInfo.scenes.length > 0 && (
+                <>
+                  <div className="h-6 w-px bg-border" />
+                  <select
+                    value={currentSceneName}
+                    onChange={(e) => handleSwitchScene(e.target.value)}
+                    className="px-2 py-1 text-sm bg-secondary border border-border rounded-md"
+                    style={{ fontFamily: 'var(--font-mono)' }}
+                  >
+                    {projectInfo.scenes.map((s) => (
+                      <option key={s} value={s}>{s}</option>
+                    ))}
+                  </select>
+                  <button
+                    onClick={handleNewScene}
+                    className="p-1.5 rounded-md hover:bg-secondary/50 transition-colors"
+                    title="新建场景"
+                  >
+                    <FilePlus className="w-4 h-4 text-muted-foreground" />
+                  </button>
+                </>
+              )}
+
+              {dirty && (
+                <span className="text-xs text-muted-foreground">未保存</span>
+              )}
             </div>
 
             <div className="flex items-center gap-2">
+              <button
+                onClick={handleOpenProject}
+                className="px-3 py-1.5 rounded-md bg-secondary hover:bg-secondary/70 transition-colors flex items-center gap-2 text-sm"
+                title="打开 WebGAL 项目文件夹"
+              >
+                <FolderOpen className="w-3.5 h-3.5" />
+                <span>打开项目</span>
+              </button>
               <button
                 onClick={handleImport}
                 className="px-3 py-1.5 rounded-md bg-secondary hover:bg-secondary/70 transition-colors flex items-center gap-2 text-sm"
@@ -242,9 +488,31 @@ export function StoryEditor() {
               <button className="p-2 rounded-md hover:bg-secondary/50 transition-colors">
                 <Play className="w-4 h-4" />
               </button>
-              <button className="px-3 py-1.5 rounded-md bg-secondary hover:bg-secondary/70 transition-colors flex items-center gap-2 text-sm">
-                <Save className="w-3.5 h-3.5" />
-                <span>保存</span>
+
+              {/* Save button with status */}
+              <button
+                onClick={handleSave}
+                disabled={saveStatus === 'saving'}
+                className={`px-3 py-1.5 rounded-md transition-colors flex items-center gap-2 text-sm ${
+                  saveStatus === 'saved'
+                    ? 'bg-chart-5/20 text-chart-5'
+                    : saveStatus === 'error'
+                    ? 'bg-destructive/20 text-destructive'
+                    : dirty
+                    ? 'bg-primary text-primary-foreground hover:opacity-90'
+                    : 'bg-secondary hover:bg-secondary/70'
+                }`}
+              >
+                {saveStatus === 'saving' ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : saveStatus === 'saved' ? (
+                  <Check className="w-3.5 h-3.5" />
+                ) : (
+                  <Save className="w-3.5 h-3.5" />
+                )}
+                <span>
+                  {saveStatus === 'saving' ? '保存中' : saveStatus === 'saved' ? '已保存' : saveStatus === 'error' ? '保存失败' : '保存'}
+                </span>
               </button>
             </div>
           </div>
@@ -276,7 +544,7 @@ export function StoryEditor() {
             <div className="flex-1 flex flex-col bg-background/50">
               <div className="p-3 border-b border-border flex items-center justify-between">
                 <span className="text-sm text-muted-foreground" style={{ fontFamily: 'var(--font-mono)' }}>
-                  WebGAL 脚本编辑器 — scene.txt
+                  WebGAL 脚本编辑器 — {currentSceneName}
                 </span>
                 <button
                   onClick={handleApplyScript}
