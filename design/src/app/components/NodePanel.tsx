@@ -1,110 +1,180 @@
-import { MessageCircle, GitBranch, Image, User } from 'lucide-react';
-import { StoryNode } from './StoryEditor';
+import { useState } from 'react';
+import {
+  MessageCircle, GitBranch, Image as ImageIcon, User, Music, Film, Tag,
+  ArrowRight, Type, Monitor, Variable, Keyboard, Wand2, Move, Award, ChevronDown, ChevronRight,
+} from 'lucide-react';
+import type { WebGalNode, WebGalCommandType } from '../lib/webgal-types';
+import { commandCategories, commandLabels, categoryLabels } from '../lib/webgal-types';
 
 interface NodePanelProps {
-  nodes: StoryNode[];
-  selectedNode: StoryNode | null;
-  onSelectNode: (node: StoryNode) => void;
-  onAddNode: (type: StoryNode['type']) => void;
+  nodes: WebGalNode[];
+  selectedNode: WebGalNode | null;
+  onSelectNode: (node: WebGalNode) => void;
+  onAddNode: (type: WebGalCommandType) => void;
 }
 
-const nodeTypeIcons = {
+const commandIcons: Partial<Record<WebGalCommandType, typeof MessageCircle>> = {
   dialogue: MessageCircle,
-  choice: GitBranch,
-  scene: Image,
-  character: User,
+  narrator: Type,
+  intro: Monitor,
+  choose: GitBranch,
+  changeBg: ImageIcon,
+  changeFigure: User,
+  miniAvatar: User,
+  changeScene: ArrowRight,
+  callScene: ArrowRight,
+  end: ArrowRight,
+  bgm: Music,
+  playEffect: Music,
+  playVideo: Film,
+  label: Tag,
+  jumpLabel: Tag,
+  setVar: Variable,
+  setTextbox: Monitor,
+  getUserInput: Keyboard,
+  setAnimation: Wand2,
+  setTransform: Move,
+  unlockCg: Award,
+  unlockBgm: Award,
+  comment: Type,
 };
 
-const nodeTypeLabels = {
-  dialogue: '对话',
-  choice: '选项',
-  scene: '场景',
-  character: '角色',
-};
-
-const nodeTypeColors = {
+const typeColorMap: Partial<Record<WebGalCommandType, string>> = {
   dialogue: 'text-accent',
-  choice: 'text-primary',
-  scene: 'text-chart-5',
-  character: 'text-destructive',
+  narrator: 'text-accent',
+  intro: 'text-accent',
+  choose: 'text-primary',
+  changeBg: 'text-chart-5',
+  changeFigure: 'text-chart-5',
+  miniAvatar: 'text-chart-5',
+  changeScene: 'text-blue-400',
+  callScene: 'text-blue-400',
+  end: 'text-blue-400',
+  bgm: 'text-purple-400',
+  playEffect: 'text-purple-400',
+  playVideo: 'text-purple-400',
+  label: 'text-yellow-400',
+  jumpLabel: 'text-yellow-400',
+  setVar: 'text-yellow-400',
+  comment: 'text-muted-foreground',
 };
+
+const categoryColors: Record<string, string> = {
+  story: 'hover:border-accent hover:bg-accent/10',
+  scene: 'hover:border-chart-5 hover:bg-chart-5/10',
+  audio: 'hover:border-purple-400 hover:bg-purple-400/10',
+  control: 'hover:border-yellow-400 hover:bg-yellow-400/10',
+  effects: 'hover:border-primary hover:bg-primary/10',
+};
+
+function getNodeSummary(node: WebGalNode): string {
+  switch (node.type) {
+    case 'dialogue':
+      return node.character ? `${node.character}: ${node.content}` : node.content;
+    case 'narrator':
+      return node.content;
+    case 'changeBg':
+    case 'changeFigure':
+    case 'miniAvatar':
+      return node.asset || node.content;
+    case 'choose':
+      return node.choices?.map(c => c.text).join(' / ') || node.content;
+    case 'changeScene':
+    case 'callScene':
+      return node.targetScene || node.content;
+    case 'label':
+    case 'jumpLabel':
+      return node.labelName || node.content;
+    case 'setVar':
+      return node.varName ? `${node.varName} = ${node.varValue}` : node.content;
+    case 'intro':
+      return node.introLines?.join(' | ') || node.content;
+    case 'bgm':
+    case 'playEffect':
+    case 'playVideo':
+      return node.asset || node.content;
+    case 'setAnimation':
+      return node.animationName || node.content;
+    case 'comment':
+      return node.content;
+    default:
+      return node.content || '—';
+  }
+}
 
 export function NodePanel({ nodes, selectedNode, onSelectNode, onAddNode }: NodePanelProps) {
+  const [expandedCat, setExpandedCat] = useState<string | null>(null);
+
   return (
     <div className="w-64 border-r border-border bg-card/30 backdrop-blur-sm flex flex-col">
-      <div className="p-4 border-b border-border">
-        <h3 className="text-sm uppercase tracking-widest text-muted-foreground mb-3" style={{ fontFamily: 'var(--font-mono)' }}>
-          节点列表
+      {/* Add Node - categorized */}
+      <div className="p-3 border-b border-border">
+        <h3 className="text-xs uppercase tracking-widest text-muted-foreground mb-2" style={{ fontFamily: 'var(--font-mono)' }}>
+          添加指令
         </h3>
-
-        <div className="grid grid-cols-2 gap-2">
-          <button
-            onClick={() => onAddNode('dialogue')}
-            className="p-2 rounded border border-border hover:border-accent hover:bg-accent/10 transition-all flex flex-col items-center gap-1 group"
-          >
-            <MessageCircle className="w-4 h-4 text-muted-foreground group-hover:text-accent transition-colors" />
-            <span className="text-xs">对话</span>
-          </button>
-          <button
-            onClick={() => onAddNode('choice')}
-            className="p-2 rounded border border-border hover:border-primary hover:bg-primary/10 transition-all flex flex-col items-center gap-1 group"
-          >
-            <GitBranch className="w-4 h-4 text-muted-foreground group-hover:text-primary transition-colors" />
-            <span className="text-xs">选项</span>
-          </button>
-          <button
-            onClick={() => onAddNode('scene')}
-            className="p-2 rounded border border-border hover:border-chart-5 hover:bg-chart-5/10 transition-all flex flex-col items-center gap-1 group"
-          >
-            <Image className="w-4 h-4 text-muted-foreground group-hover:text-chart-5 transition-colors" />
-            <span className="text-xs">场景</span>
-          </button>
-          <button
-            onClick={() => onAddNode('character')}
-            className="p-2 rounded border border-border hover:border-destructive hover:bg-destructive/10 transition-all flex flex-col items-center gap-1 group"
-          >
-            <User className="w-4 h-4 text-muted-foreground group-hover:text-destructive transition-colors" />
-            <span className="text-xs">角色</span>
-          </button>
+        <div className="space-y-1">
+          {Object.entries(commandCategories).map(([catKey, types]) => (
+            <div key={catKey}>
+              <button
+                onClick={() => setExpandedCat(expandedCat === catKey ? null : catKey)}
+                className="w-full flex items-center justify-between px-2 py-1.5 rounded text-xs hover:bg-secondary/50 transition-colors"
+              >
+                <span className="font-medium">{categoryLabels[catKey]}</span>
+                {expandedCat === catKey
+                  ? <ChevronDown className="w-3 h-3 text-muted-foreground" />
+                  : <ChevronRight className="w-3 h-3 text-muted-foreground" />
+                }
+              </button>
+              {expandedCat === catKey && (
+                <div className="grid grid-cols-2 gap-1 mt-1 mb-2 pl-1">
+                  {types.map((type) => {
+                    const Icon = commandIcons[type] || Type;
+                    return (
+                      <button
+                        key={type}
+                        onClick={() => onAddNode(type)}
+                        className={`p-1.5 rounded border border-border transition-all flex items-center gap-1.5 group text-xs ${categoryColors[catKey]}`}
+                      >
+                        <Icon className="w-3 h-3 text-muted-foreground group-hover:text-foreground transition-colors shrink-0" />
+                        <span className="truncate">{commandLabels[type]}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          ))}
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-3 space-y-2">
+      {/* Node List */}
+      <div className="flex-1 overflow-y-auto p-2 space-y-1">
         {nodes.map((node) => {
-          const Icon = nodeTypeIcons[node.type];
+          const Icon = commandIcons[node.type] || Type;
           const isSelected = selectedNode?.id === node.id;
+          const color = typeColorMap[node.type] || 'text-muted-foreground';
 
           return (
             <button
               key={node.id}
               onClick={() => onSelectNode(node)}
               className={`
-                w-full p-3 rounded border transition-all text-left
+                w-full px-2.5 py-2 rounded border transition-all text-left
                 ${isSelected
-                  ? 'border-primary bg-primary/10 shadow-[0_0_15px_rgba(212,165,116,0.2)]'
-                  : 'border-border hover:border-primary/50 hover:bg-secondary/50'
+                  ? 'border-primary bg-primary/10 shadow-[0_0_12px_rgba(212,165,116,0.15)]'
+                  : 'border-transparent hover:border-border hover:bg-secondary/30'
                 }
               `}
             >
               <div className="flex items-start gap-2">
-                <Icon className={`w-4 h-4 mt-0.5 ${nodeTypeColors[node.type]}`} />
+                <Icon className={`w-3.5 h-3.5 mt-0.5 shrink-0 ${color}`} />
                 <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 mb-1">
-                    <span className="text-xs uppercase tracking-wider text-muted-foreground" style={{ fontFamily: 'var(--font-mono)' }}>
-                      {nodeTypeLabels[node.type]}
-                    </span>
+                  <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-0.5" style={{ fontFamily: 'var(--font-mono)' }}>
+                    {commandLabels[node.type]}
                   </div>
-                  <div className="font-medium truncate mb-1 text-sm" style={{ fontFamily: 'var(--font-display)' }}>
-                    {node.title}
+                  <div className="text-xs text-foreground/80 truncate">
+                    {getNodeSummary(node) || '(空)'}
                   </div>
-                  <div className="text-xs text-muted-foreground line-clamp-2">
-                    {node.content || '无内容'}
-                  </div>
-                  {node.character && (
-                    <div className="text-xs text-accent mt-1">
-                      {node.character}
-                    </div>
-                  )}
                 </div>
               </div>
             </button>
@@ -114,7 +184,7 @@ export function NodePanel({ nodes, selectedNode, onSelectNode, onAddNode }: Node
 
       <div className="p-3 border-t border-border">
         <div className="text-xs text-muted-foreground" style={{ fontFamily: 'var(--font-mono)' }}>
-          共 {nodes.length} 个节点
+          共 {nodes.length} 条指令
         </div>
       </div>
     </div>

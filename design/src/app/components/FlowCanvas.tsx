@@ -1,105 +1,168 @@
 import { useRef, useEffect } from 'react';
-import { MessageCircle, GitBranch, Image, User } from 'lucide-react';
-import { StoryNode } from './StoryEditor';
+import {
+  MessageCircle, GitBranch, Image as ImageIcon, User, Music, Film, Tag,
+  ArrowRight, Type, Monitor, Variable, Keyboard, Wand2, Move, Award,
+} from 'lucide-react';
+import type { WebGalNode, WebGalCommandType } from '../lib/webgal-types';
+import { commandLabels } from '../lib/webgal-types';
 
 interface FlowCanvasProps {
-  nodes: StoryNode[];
-  selectedNode: StoryNode | null;
-  onSelectNode: (node: StoryNode) => void;
-  onUpdateNode: (id: string, updates: Partial<StoryNode>) => void;
+  nodes: WebGalNode[];
+  selectedNode: WebGalNode | null;
+  onSelectNode: (node: WebGalNode) => void;
+  onUpdateNode: (id: string, updates: Partial<WebGalNode>) => void;
 }
 
-const nodeTypeIcons = {
+const commandIcons: Partial<Record<WebGalCommandType, typeof MessageCircle>> = {
   dialogue: MessageCircle,
-  choice: GitBranch,
-  scene: Image,
-  character: User,
+  narrator: Type,
+  intro: Monitor,
+  choose: GitBranch,
+  changeBg: ImageIcon,
+  changeFigure: User,
+  miniAvatar: User,
+  changeScene: ArrowRight,
+  callScene: ArrowRight,
+  end: ArrowRight,
+  bgm: Music,
+  playEffect: Music,
+  playVideo: Film,
+  label: Tag,
+  jumpLabel: Tag,
+  setVar: Variable,
+  setTextbox: Monitor,
+  getUserInput: Keyboard,
+  setAnimation: Wand2,
+  setTransform: Move,
+  unlockCg: Award,
+  unlockBgm: Award,
+  comment: Type,
 };
 
-const nodeTypeColors = {
+const typeColors: Partial<Record<WebGalCommandType, string>> = {
   dialogue: 'border-accent bg-accent/5',
-  choice: 'border-primary bg-primary/5',
-  scene: 'border-chart-5 bg-chart-5/5',
-  character: 'border-destructive bg-destructive/5',
+  narrator: 'border-accent bg-accent/5',
+  intro: 'border-accent bg-accent/5',
+  choose: 'border-primary bg-primary/5',
+  changeBg: 'border-chart-5 bg-chart-5/5',
+  changeFigure: 'border-chart-5 bg-chart-5/5',
+  miniAvatar: 'border-chart-5 bg-chart-5/5',
+  changeScene: 'border-blue-400 bg-blue-400/5',
+  callScene: 'border-blue-400 bg-blue-400/5',
+  end: 'border-blue-400 bg-blue-400/5',
+  bgm: 'border-purple-400 bg-purple-400/5',
+  playEffect: 'border-purple-400 bg-purple-400/5',
+  playVideo: 'border-purple-400 bg-purple-400/5',
+  label: 'border-yellow-400 bg-yellow-400/5',
+  jumpLabel: 'border-yellow-400 bg-yellow-400/5',
+  setVar: 'border-yellow-400 bg-yellow-400/5',
+  setTextbox: 'border-yellow-400 bg-yellow-400/5',
+  getUserInput: 'border-yellow-400 bg-yellow-400/5',
+  setAnimation: 'border-primary bg-primary/5',
+  setTransform: 'border-primary bg-primary/5',
+  unlockCg: 'border-primary bg-primary/5',
+  unlockBgm: 'border-primary bg-primary/5',
+  comment: 'border-muted bg-muted/5',
 };
 
-const nodeTypeGlows = {
-  dialogue: 'shadow-[0_0_20px_rgba(201,148,74,0.15)]',
-  choice: 'shadow-[0_0_20px_rgba(212,165,116,0.2)]',
-  scene: 'shadow-[0_0_20px_rgba(124,152,133,0.15)]',
-  character: 'shadow-[0_0_20px_rgba(193,70,70,0.15)]',
+const typeGlows: Partial<Record<WebGalCommandType, string>> = {
+  dialogue: 'shadow-[0_0_15px_rgba(201,148,74,0.12)]',
+  choose: 'shadow-[0_0_15px_rgba(212,165,116,0.15)]',
+  changeBg: 'shadow-[0_0_15px_rgba(124,152,133,0.12)]',
+  changeScene: 'shadow-[0_0_15px_rgba(96,165,250,0.12)]',
+  bgm: 'shadow-[0_0_15px_rgba(192,132,252,0.12)]',
+  label: 'shadow-[0_0_15px_rgba(250,204,21,0.12)]',
+  comment: 'shadow-none',
 };
 
-export function FlowCanvas({ nodes, selectedNode, onSelectNode, onUpdateNode }: FlowCanvasProps) {
+function getNodeSummary(node: WebGalNode): string {
+  switch (node.type) {
+    case 'dialogue':
+      return node.content || '(空对话)';
+    case 'narrator':
+      return node.content || '(空旁白)';
+    case 'changeBg':
+      return node.asset || node.content || 'none';
+    case 'changeFigure':
+      return `${node.asset || node.content || 'none'}${node.figurePosition && node.figurePosition !== 'center' ? ` [${node.figurePosition}]` : ''}`;
+    case 'choose':
+      return node.choices?.map(c => c.text).join(' | ') || '';
+    case 'changeScene':
+    case 'callScene':
+      return `→ ${node.targetScene || node.content}`;
+    case 'label':
+      return `# ${node.labelName || node.content}`;
+    case 'jumpLabel':
+      return `→ ${node.labelName || node.content}`;
+    case 'setVar':
+      return node.varName ? `${node.varName} = ${node.varValue}` : node.content;
+    case 'intro':
+      return node.introLines?.join(' | ') || node.content;
+    case 'bgm':
+    case 'playEffect':
+      return node.asset || node.content || 'none';
+    case 'setAnimation':
+      return `${node.animationName || node.content}${node.animationTarget ? ` → ${node.animationTarget}` : ''}`;
+    case 'comment':
+      return node.content;
+    case 'end':
+      return '场景结束';
+    default:
+      return node.content || '—';
+  }
+}
+
+export function FlowCanvas({ nodes, selectedNode, onSelectNode }: FlowCanvasProps) {
   const canvasRef = useRef<HTMLDivElement>(null);
   const svgRef = useRef<SVGSVGElement>(null);
 
   useEffect(() => {
-    // Draw connections
-    if (svgRef.current) {
-      const svg = svgRef.current;
-      svg.innerHTML = '';
+    if (!svgRef.current) return;
+    const svg = svgRef.current;
+    svg.innerHTML = '';
 
-      nodes.forEach(node => {
-        node.connections.forEach(targetId => {
-          const target = nodes.find(n => n.id === targetId);
-          if (target) {
-            const startX = node.position.x + 150;
-            const startY = node.position.y + 50;
-            const endX = target.position.x;
-            const endY = target.position.y + 50;
+    nodes.forEach(node => {
+      node.connections.forEach(targetId => {
+        const target = nodes.find(n => n.id === targetId);
+        if (!target) return;
 
-            const midX = (startX + endX) / 2;
+        const startX = node.position.x + 140;
+        const startY = node.position.y + 44;
+        const endX = target.position.x + 140;
+        const endY = target.position.y;
 
-            const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-            path.setAttribute(
-              'd',
-              `M ${startX} ${startY} Q ${midX} ${startY}, ${midX} ${(startY + endY) / 2} T ${endX} ${endY}`
-            );
-            path.setAttribute('stroke', 'rgba(212, 165, 116, 0.3)');
-            path.setAttribute('stroke-width', '2');
-            path.setAttribute('fill', 'none');
-            path.setAttribute('class', 'transition-all duration-300');
+        const midY = (startY + endY) / 2;
 
-            // Add glow effect
-            const glow = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-            glow.setAttribute('d', path.getAttribute('d') || '');
-            glow.setAttribute('stroke', 'rgba(212, 165, 116, 0.1)');
-            glow.setAttribute('stroke-width', '8');
-            glow.setAttribute('fill', 'none');
-            glow.setAttribute('filter', 'blur(4px)');
+        // Glow
+        const glow = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        glow.setAttribute('d', `M ${startX} ${startY} C ${startX} ${midY}, ${endX} ${midY}, ${endX} ${endY}`);
+        glow.setAttribute('stroke', 'rgba(212, 165, 116, 0.08)');
+        glow.setAttribute('stroke-width', '6');
+        glow.setAttribute('fill', 'none');
+        glow.setAttribute('filter', 'blur(3px)');
+        svg.appendChild(glow);
 
-            svg.appendChild(glow);
-            svg.appendChild(path);
+        // Line
+        const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        path.setAttribute('d', `M ${startX} ${startY} C ${startX} ${midY}, ${endX} ${midY}, ${endX} ${endY}`);
+        path.setAttribute('stroke', 'rgba(212, 165, 116, 0.25)');
+        path.setAttribute('stroke-width', '1.5');
+        path.setAttribute('fill', 'none');
+        svg.appendChild(path);
 
-            // Add arrow
-            const arrow = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
-            const angle = Math.atan2(endY - startY, endX - startX);
-            const arrowSize = 8;
-            const points = [
-              [endX, endY],
-              [
-                endX - arrowSize * Math.cos(angle - Math.PI / 6),
-                endY - arrowSize * Math.sin(angle - Math.PI / 6),
-              ],
-              [
-                endX - arrowSize * Math.cos(angle + Math.PI / 6),
-                endY - arrowSize * Math.sin(angle + Math.PI / 6),
-              ],
-            ];
-            arrow.setAttribute('points', points.map(p => p.join(',')).join(' '));
-            arrow.setAttribute('fill', 'rgba(212, 165, 116, 0.5)');
-
-            svg.appendChild(arrow);
-          }
-        });
+        // Arrow
+        const arrow = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
+        const size = 6;
+        arrow.setAttribute('points', `${endX},${endY} ${endX - size},${endY - size * 1.5} ${endX + size},${endY - size * 1.5}`);
+        arrow.setAttribute('fill', 'rgba(212, 165, 116, 0.4)');
+        svg.appendChild(arrow);
       });
-    }
+    });
   }, [nodes]);
 
   return (
     <div className="flex-1 relative overflow-hidden bg-background/50">
-      {/* Grid Background */}
+      {/* Grid */}
       <div
         className="absolute inset-0 opacity-30"
         style={{
@@ -110,101 +173,97 @@ export function FlowCanvas({ nodes, selectedNode, onSelectNode, onUpdateNode }: 
           backgroundSize: '30px 30px',
         }}
       />
-
-      {/* Decorative Elements */}
       <div className="absolute top-0 left-0 w-64 h-64 bg-primary/5 rounded-full blur-3xl" />
       <div className="absolute bottom-0 right-0 w-96 h-96 bg-accent/5 rounded-full blur-3xl" />
 
       {/* Canvas */}
       <div ref={canvasRef} className="relative size-full overflow-auto">
         <div className="relative min-w-[2000px] min-h-[1500px] p-8">
-          {/* SVG for connections */}
           <svg
             ref={svgRef}
             className="absolute inset-0 pointer-events-none"
             style={{ width: '100%', height: '100%' }}
           />
 
-          {/* Nodes */}
           {nodes.map((node) => {
-            const Icon = nodeTypeIcons[node.type];
+            const Icon = commandIcons[node.type] || Type;
             const isSelected = selectedNode?.id === node.id;
+            const colors = typeColors[node.type] || 'border-border bg-card/50';
+            const glow = typeGlows[node.type] || '';
 
             return (
               <div
                 key={node.id}
                 onClick={() => onSelectNode(node)}
                 className={`
-                  absolute w-[280px] cursor-pointer transition-all duration-300
-                  ${isSelected ? 'z-10 scale-105' : 'z-0 hover:scale-102'}
+                  absolute w-[280px] cursor-pointer transition-all duration-200
+                  ${isSelected ? 'z-10 scale-[1.03]' : 'z-0 hover:scale-[1.01]'}
                 `}
-                style={{
-                  left: node.position.x,
-                  top: node.position.y,
-                }}
+                style={{ left: node.position.x, top: node.position.y }}
               >
                 <div
                   className={`
-                    p-4 rounded-lg border-2 backdrop-blur-sm transition-all
-                    ${nodeTypeColors[node.type]}
+                    px-4 py-3 rounded-lg border backdrop-blur-sm transition-all
+                    ${colors}
                     ${isSelected
-                      ? 'border-primary shadow-[0_0_30px_rgba(212,165,116,0.4)]'
-                      : `${nodeTypeGlows[node.type]} hover:border-opacity-100`
+                      ? 'border-primary shadow-[0_0_25px_rgba(212,165,116,0.3)]'
+                      : glow
                     }
                   `}
                 >
-                  <div className="flex items-start gap-3 mb-3">
-                    <div className={`p-2 rounded ${isSelected ? 'bg-primary/20' : 'bg-background/50'}`}>
-                      <Icon className="w-5 h-5" />
+                  <div className="flex items-center gap-2.5 mb-1.5">
+                    <div className={`p-1.5 rounded ${isSelected ? 'bg-primary/20' : 'bg-background/50'}`}>
+                      <Icon className="w-4 h-4" />
                     </div>
                     <div className="flex-1 min-w-0">
-                      <div className="text-xs uppercase tracking-widest text-muted-foreground mb-1" style={{ fontFamily: 'var(--font-mono)' }}>
-                        {node.type}
+                      <div className="text-[10px] uppercase tracking-widest text-muted-foreground" style={{ fontFamily: 'var(--font-mono)' }}>
+                        {commandLabels[node.type]}
                       </div>
-                      <h4 className="font-semibold truncate" style={{ fontFamily: 'var(--font-display)' }}>
-                        {node.title}
-                      </h4>
                     </div>
+                    {node.character && (
+                      <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-accent/20 text-accent shrink-0">
+                        {node.character}
+                      </span>
+                    )}
                   </div>
 
-                  <p className="text-sm text-muted-foreground line-clamp-3 mb-3">
-                    {node.content || '暂无内容'}
+                  <p className="text-sm text-foreground/80 line-clamp-2" style={{ fontFamily: 'var(--font-body)' }}>
+                    {getNodeSummary(node) || '(空)'}
                   </p>
 
-                  {node.character && (
-                    <div className="text-xs px-2 py-1 rounded-full bg-accent/20 text-accent inline-block mb-2">
-                      {node.character}
-                    </div>
-                  )}
-
-                  {node.choices && node.choices.length > 0 && (
-                    <div className="space-y-1">
+                  {node.type === 'choose' && node.choices && node.choices.length > 0 && (
+                    <div className="mt-2 space-y-1">
                       {node.choices.map((choice, idx) => (
                         <div key={idx} className="text-xs px-2 py-1 rounded bg-primary/10 text-primary/80 truncate">
-                          → {choice.text}
+                          → {choice.text}{choice.target ? ` → ${choice.target}` : ''}
                         </div>
                       ))}
                     </div>
                   )}
 
-                  {/* Connection Points */}
-                  <div className="absolute -right-2 top-1/2 -translate-y-1/2 w-4 h-4 rounded-full bg-primary border-2 border-background" />
-                  <div className="absolute -left-2 top-1/2 -translate-y-1/2 w-4 h-4 rounded-full bg-primary border-2 border-background" />
+                  {node.next && (
+                    <div className="mt-1.5 text-[10px] text-muted-foreground" style={{ fontFamily: 'var(--font-mono)' }}>
+                      -next
+                    </div>
+                  )}
+
+                  {/* Connection points */}
+                  <div className="absolute left-1/2 -translate-x-1/2 -bottom-2 w-3 h-3 rounded-full bg-primary/60 border-2 border-background" />
+                  <div className="absolute left-1/2 -translate-x-1/2 -top-2 w-3 h-3 rounded-full bg-primary/40 border-2 border-background" />
                 </div>
               </div>
             );
           })}
 
-          {/* Empty State */}
           {nodes.length === 0 && (
             <div className="absolute inset-0 flex items-center justify-center">
               <div className="text-center">
-                <div className="text-6xl mb-4 opacity-20">📖</div>
-                <p className="text-xl text-muted-foreground mb-2" style={{ fontFamily: 'var(--font-display)' }}>
+                <div className="text-5xl mb-4 opacity-20">📖</div>
+                <p className="text-lg text-muted-foreground mb-2" style={{ fontFamily: 'var(--font-display)' }}>
                   开始编织你的故事
                 </p>
                 <p className="text-sm text-muted-foreground">
-                  从左侧添加节点开始创作
+                  从左侧添加 WebGAL 指令，或导入 .txt 场景文件
                 </p>
               </div>
             </div>
@@ -213,15 +272,15 @@ export function FlowCanvas({ nodes, selectedNode, onSelectNode, onUpdateNode }: 
       </div>
 
       {/* Mini Map */}
-      <div className="absolute bottom-4 right-4 w-48 h-32 bg-card/80 backdrop-blur-sm border border-border rounded-lg p-2">
-        <div className="text-xs text-muted-foreground mb-2" style={{ fontFamily: 'var(--font-mono)' }}>
+      <div className="absolute bottom-4 right-4 w-44 h-28 bg-card/80 backdrop-blur-sm border border-border rounded-lg p-2">
+        <div className="text-[10px] text-muted-foreground mb-1" style={{ fontFamily: 'var(--font-mono)' }}>
           画布总览
         </div>
         <div className="relative w-full h-full bg-background/50 rounded">
           {nodes.map(node => (
             <div
               key={node.id}
-              className={`absolute w-2 h-2 rounded-full ${selectedNode?.id === node.id ? 'bg-primary' : 'bg-muted-foreground/50'}`}
+              className={`absolute w-1.5 h-1.5 rounded-full ${selectedNode?.id === node.id ? 'bg-primary' : 'bg-muted-foreground/50'}`}
               style={{
                 left: `${(node.position.x / 2000) * 100}%`,
                 top: `${(node.position.y / 1500) * 100}%`,
