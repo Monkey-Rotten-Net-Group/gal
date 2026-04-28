@@ -10,12 +10,14 @@ import { open as openDialog, save as saveDialog } from '@tauri-apps/plugin-dialo
 import { NodePanel } from './NodePanel';
 import { FlowCanvas } from './FlowCanvas';
 import { DetailPanel } from './DetailPanel';
+import { AiSettingsDialog } from './AiSettingsDialog';
 import type { WebGalNode, WebGalCommandType } from '../lib/webgal-types';
 import {
   parseScene, serializeScene, saveScene, loadScene,
   openProject, getScenePath, createScene,
   type ProjectInfo,
 } from '../lib/webgal-ipc';
+import { aiChatStream, type AiChatMessage } from '../lib/ai-ipc';
 
 interface AiMessage {
   id: string;
@@ -64,6 +66,12 @@ export function StoryEditor() {
       content: '你好！我是 AI 创作助手。我可以帮你生成 WebGAL 脚本——对话、场景切换、选项分支等。请告诉我你需要什么帮助？',
     },
   ]);
+  const [aiBusy, setAiBusy] = useState(false);
+  const [aiError, setAiError] = useState<string | null>(null);
+  const [aiSettingsOpen, setAiSettingsOpen] = useState(false);
+  const aiCancelRef = useRef<(() => void) | null>(null);
+  const aiStreamingIdRef = useRef<string | null>(null);
+  const aiMessagesEndRef = useRef<HTMLDivElement | null>(null);
 
   const saveTimerRef = useRef<ReturnType<typeof setTimeout>>();
 
@@ -369,12 +377,84 @@ export function StoryEditor() {
   // ---------------------------------------------------------------------------
   // AI chat
   // ---------------------------------------------------------------------------
-  const handleAiSend = () => {
-    if (!aiInput.trim()) return;
-    const userMsg: AiMessage = { id: Date.now().toString(), role: 'user', content: aiInput };
-    const assistantMsg: AiMessage = { id: (Date.now() + 1).toString(), role: 'assistant', content: '正在思考中...' };
-    setAiMessages(prev => [...prev, userMsg, assistantMsg]);
+  useEffect(() => {
+    aiMessagesEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
+  }, [aiMessages]);
+
+  // Cancel in-flight stream on unmount
+  useEffect(() => () => { aiCancelRef.current?.(); }, []);
+
+  const buildAiPayload = useCallback(
+    (history: AiMessage[], next: string): AiChatMessage[] => {
+      const recent = history.slice(-12); // cap context
+      const payload: AiChatMessage[] = recent.map((m) => ({
+        role: m.role,
+        content: m.content,
+      }));
+      payload.push({ role: 'user', content: next });
+      return payload;
+    },
+    [],
+  );
+
+  const sendAiPrompt = useCallback(async (prompt: string) => {
+    const text = prompt.trim();
+    if (!text || aiBusy) return;
+    setAiError(null);
+
+    const userId = `u-${Date.now()}`;
+    const assistantId = `a-${Date.now() + 1}`;
+    aiStreamingIdRef.current = assistantId;
+
+    const newHistory: AiMessage[] = [
+      ...aiMessages,
+      { id: userId, role: 'user', content: text },
+      { id: assistantId, role: 'assistant', content: '' },
+    ];
+    setAiMessages(newHistory);
     setAiInput('');
+    setAiBusy(true);
+
+    const appendChunk = (chunk: string) => {
+      setAiMessages(prev =>
+        prev.map(m => (m.id === assistantId ? { ...m, content: m.content + chunk } : m)),
+      );
+    };
+
+    try {
+      const { cancel } = await aiChatStream(buildAiPayload(aiMessages, text), {
+        onChunk: appendChunk,
+        onDone: () => {
+          aiCancelRef.current = null;
+          aiStreamingIdRef.current = null;
+          setAiBusy(false);
+        },
+        onError: (msg) => {
+          aiCancelRef.current = null;
+          aiStreamingIdRef.current = null;
+          setAiBusy(false);
+          setAiError(msg);
+          setAiMessages(prev =>
+            prev.map(m =>
+              m.id === assistantId && !m.content
+                ? { ...m, content: `（出错：${msg}）` }
+                : m,
+            ),
+          );
+        },
+      });
+      aiCancelRef.current = cancel;
+    } catch (e) {
+      setAiBusy(false);
+      setAiError(String(e));
+    }
+  }, [aiBusy, aiMessages, buildAiPayload]);
+
+  const handleAiSend = () => { void sendAiPrompt(aiInput); };
+
+  const handleQuickAction = (text: string) => {
+    if (aiBusy) return;
+    setAiInput(text);
   };
 
   // ---------------------------------------------------------------------------
@@ -482,7 +562,11 @@ export function StoryEditor() {
                 <Image className="w-3.5 h-3.5" />
                 <span>素材库</span>
               </button>
-              <button className="p-2 rounded-md hover:bg-secondary/50 transition-colors">
+              <button
+                onClick={() => setAiSettingsOpen(true)}
+                className="p-2 rounded-md hover:bg-secondary/50 transition-colors"
+                title="AI 设置"
+              >
                 <Settings className="w-4 h-4" />
               </button>
               <button className="p-2 rounded-md hover:bg-secondary/50 transition-colors">
@@ -584,40 +668,59 @@ export function StoryEditor() {
             {/* Quick Actions */}
             <div className="p-3 border-b border-border">
               <div className="grid grid-cols-2 gap-2">
-                <button className="px-2 py-1.5 rounded text-xs bg-secondary hover:bg-secondary/70 transition-all border border-border">
-                  生成对话
-                </button>
-                <button className="px-2 py-1.5 rounded text-xs bg-secondary hover:bg-secondary/70 transition-all border border-border">
-                  生成场景
-                </button>
-                <button className="px-2 py-1.5 rounded text-xs bg-secondary hover:bg-secondary/70 transition-all border border-border">
-                  生成分支
-                </button>
-                <button className="px-2 py-1.5 rounded text-xs bg-secondary hover:bg-secondary/70 transition-all border border-border">
-                  续写剧情
-                </button>
+                {[
+                  { label: '生成对话', text: '请生成一段两位角色的日常对话，至少 6 行，包含称呼。' },
+                  { label: '生成场景', text: '请生成一个新场景的开头：换背景、播放 BGM、加入立绘并写一段开场旁白。' },
+                  { label: '生成分支', text: '请基于当前剧情写一个 choose 选项，包含 2-3 个分支并指向对应 .txt 文件。' },
+                  { label: '续写剧情', text: '请基于当前已有的剧情上下文继续往下写一段 8 行左右的对话。' },
+                ].map((a) => (
+                  <button
+                    key={a.label}
+                    onClick={() => handleQuickAction(a.text)}
+                    disabled={aiBusy}
+                    className="px-2 py-1.5 rounded text-xs bg-secondary hover:bg-secondary/70 transition-all border border-border disabled:opacity-50"
+                  >
+                    {a.label}
+                  </button>
+                ))}
               </div>
             </div>
 
             {/* Messages */}
             <div className="flex-1 overflow-y-auto p-4 space-y-4">
-              {aiMessages.map((msg) => (
-                <div
-                  key={msg.id}
-                  className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
-                >
+              {aiMessages.map((msg) => {
+                const isStreaming = aiBusy && aiStreamingIdRef.current === msg.id;
+                return (
                   <div
-                    className={`max-w-[85%] px-3 py-2 rounded-lg text-sm ${
-                      msg.role === 'user'
-                        ? 'bg-primary text-primary-foreground'
-                        : 'bg-secondary border border-border'
-                    }`}
-                    style={{ fontFamily: 'var(--font-body)' }}
+                    key={msg.id}
+                    className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
                   >
-                    {msg.content}
+                    <div
+                      className={`max-w-[85%] px-3 py-2 rounded-lg text-sm whitespace-pre-wrap break-words ${
+                        msg.role === 'user'
+                          ? 'bg-primary text-primary-foreground'
+                          : 'bg-secondary border border-border'
+                      }`}
+                      style={{ fontFamily: msg.role === 'assistant' ? 'var(--font-mono)' : 'var(--font-body)' }}
+                    >
+                      {msg.content || (isStreaming ? '正在思考…' : '')}
+                      {isStreaming && msg.content && <span className="inline-block w-2 h-3 ml-1 bg-current align-middle animate-pulse" />}
+                    </div>
                   </div>
+                );
+              })}
+              {aiError && (
+                <div className="text-xs text-destructive bg-destructive/10 border border-destructive/30 rounded-md px-3 py-2">
+                  {aiError}
+                  <button
+                    onClick={() => setAiSettingsOpen(true)}
+                    className="ml-2 underline hover:no-underline"
+                  >
+                    打开设置
+                  </button>
                 </div>
-              ))}
+              )}
+              <div ref={aiMessagesEndRef} />
             </div>
 
             {/* Input */}
@@ -631,19 +734,36 @@ export function StoryEditor() {
                     handleAiSend();
                   }
                 }}
-                className="w-full h-20 bg-input-background border border-border rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/50 resize-none"
-                placeholder="输入你的创作想法..."
+                disabled={aiBusy}
+                className="w-full h-20 bg-input-background border border-border rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/50 resize-none disabled:opacity-60"
+                placeholder={aiBusy ? '正在生成中…' : '输入你的创作想法...'}
               />
-              <button
-                onClick={handleAiSend}
-                className="mt-2 w-full px-3 py-2 rounded-md bg-primary text-primary-foreground hover:opacity-90 transition-all flex items-center justify-center gap-2 text-sm"
-              >
-                <Send className="w-3.5 h-3.5" />
-                <span>发送</span>
-              </button>
+              {aiBusy ? (
+                <button
+                  onClick={() => { aiCancelRef.current?.(); aiCancelRef.current = null; aiStreamingIdRef.current = null; setAiBusy(false); }}
+                  className="mt-2 w-full px-3 py-2 rounded-md bg-secondary hover:bg-secondary/70 transition-all flex items-center justify-center gap-2 text-sm"
+                >
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  <span>停止</span>
+                </button>
+              ) : (
+                <button
+                  onClick={handleAiSend}
+                  disabled={!aiInput.trim()}
+                  className="mt-2 w-full px-3 py-2 rounded-md bg-primary text-primary-foreground hover:opacity-90 transition-all flex items-center justify-center gap-2 text-sm disabled:opacity-50"
+                >
+                  <Send className="w-3.5 h-3.5" />
+                  <span>发送</span>
+                </button>
+              )}
             </div>
           </div>
         </div>
+
+        <AiSettingsDialog
+          open={aiSettingsOpen}
+          onClose={() => setAiSettingsOpen(false)}
+        />
       </div>
     </DndProvider>
   );
