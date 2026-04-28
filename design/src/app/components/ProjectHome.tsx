@@ -33,6 +33,7 @@ export interface Project {
   thumbnail?: string;
   isFavorite: boolean;
   sceneCount: number;
+  deleted?: boolean;
 }
 
 const STORAGE_KEY = 'webgal-projects';
@@ -55,6 +56,7 @@ export function ProjectHome() {
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   const [searchQuery, setSearchQuery] = useState('');
   const [projects, setProjects] = useState<Project[]>(loadProjects);
+  const [sidebarFilter, setSidebarFilter] = useState<'all' | 'favorites' | 'recent' | 'trash'>('all');
 
   // Create modal state
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -76,10 +78,36 @@ export function ProjectHome() {
     }
   }, [projects]);
 
-  const filteredProjects = projects.filter(p =>
-    p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    p.description.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const filteredProjects = (() => {
+    let list = projects;
+
+    // Sidebar filter
+    switch (sidebarFilter) {
+      case 'favorites':
+        list = list.filter(p => p.isFavorite && !p.deleted);
+        break;
+      case 'trash':
+        list = list.filter(p => p.deleted);
+        break;
+      default:
+        // 'all' and 'recent': exclude deleted
+        list = list.filter(p => !p.deleted);
+        break;
+    }
+
+    // Search filter
+    list = list.filter(p =>
+      p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      p.description.toLowerCase().includes(searchQuery.toLowerCase())
+    );
+
+    // Recent: take first 5 (already ordered most-recent-first)
+    if (sidebarFilter === 'recent') {
+      list = list.slice(0, 5);
+    }
+
+    return list;
+  })();
 
   // ---------------------------------------------------------------------------
   // Pick base directory for new project
@@ -170,7 +198,19 @@ export function ProjectHome() {
 
   const deleteProject = (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    if (confirm('从列表中移除此项目？（不会删除磁盘上的文件）')) {
+    if (confirm('移入回收站？（不会删除磁盘上的文件）')) {
+      setProjects(prev => prev.map(p => p.id === id ? { ...p, deleted: true } : p));
+    }
+  };
+
+  const restoreProject = (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setProjects(prev => prev.map(p => p.id === id ? { ...p, deleted: false } : p));
+  };
+
+  const permanentlyDeleteProject = (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (confirm('确定永久移除此项目？不会删除磁盘上的文件。')) {
       setProjects(prev => prev.filter(p => p.id !== id));
       localStorage.removeItem(`project-path-${id}`);
     }
@@ -364,23 +404,52 @@ export function ProjectHome() {
           {/* Left Sidebar */}
           <aside className="w-64 flex-shrink-0 hidden lg:flex flex-col gap-8">
             <nav className="space-y-1">
-              <button className="w-full flex items-center gap-3 px-4 py-3 rounded-xl bg-primary/10 text-primary border border-primary/20 transition-all">
+              <button
+                onClick={() => setSidebarFilter('all')}
+                className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${
+                  sidebarFilter === 'all'
+                    ? 'bg-primary/10 text-primary border border-primary/20'
+                    : 'hover:bg-secondary/50 text-muted-foreground hover:text-foreground'
+                }`}
+              >
                 <Folder className="w-5 h-5" />
                 <span className="font-medium">全部项目</span>
-                <span className="ml-auto text-xs opacity-60">{projects.length}</span>
+                <span className="ml-auto text-xs opacity-60">{projects.filter(p => !p.deleted).length}</span>
               </button>
-              <button className="w-full flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-secondary/50 text-muted-foreground hover:text-foreground transition-all">
+              <button
+                onClick={() => setSidebarFilter('favorites')}
+                className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${
+                  sidebarFilter === 'favorites'
+                    ? 'bg-primary/10 text-primary border border-primary/20'
+                    : 'hover:bg-secondary/50 text-muted-foreground hover:text-foreground'
+                }`}
+              >
                 <Star className="w-5 h-5" />
                 <span className="font-medium">我的收藏</span>
-                <span className="ml-auto text-xs opacity-60">{projects.filter(p => p.isFavorite).length}</span>
+                <span className="ml-auto text-xs opacity-60">{projects.filter(p => p.isFavorite && !p.deleted).length}</span>
               </button>
-              <button className="w-full flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-secondary/50 text-muted-foreground hover:text-foreground transition-all">
+              <button
+                onClick={() => setSidebarFilter('recent')}
+                className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${
+                  sidebarFilter === 'recent'
+                    ? 'bg-primary/10 text-primary border border-primary/20'
+                    : 'hover:bg-secondary/50 text-muted-foreground hover:text-foreground'
+                }`}
+              >
                 <Clock className="w-5 h-5" />
                 <span className="font-medium">最近编辑</span>
               </button>
-              <button className="w-full flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-secondary/50 text-muted-foreground hover:text-foreground transition-all">
+              <button
+                onClick={() => setSidebarFilter('trash')}
+                className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${
+                  sidebarFilter === 'trash'
+                    ? 'bg-primary/10 text-primary border border-primary/20'
+                    : 'hover:bg-secondary/50 text-muted-foreground hover:text-foreground'
+                }`}
+              >
                 <Trash2 className="w-5 h-5" />
                 <span className="font-medium">回收站</span>
+                <span className="ml-auto text-xs opacity-60">{projects.filter(p => p.deleted).length}</span>
               </button>
             </nav>
 
@@ -472,8 +541,12 @@ export function ProjectHome() {
                 {filteredProjects.map((project) => (
                   <div
                     key={project.id}
-                    onClick={() => navigate(`/editor/${project.id}`)}
-                    className="group bg-card border border-border rounded-2xl overflow-hidden cursor-pointer transition-all hover:scale-[1.02] hover:shadow-[0_20px_40px_rgba(0,0,0,0.2)] hover:border-primary/30"
+                    onClick={() => !project.deleted && navigate(`/editor/${project.id}`)}
+                    className={`group bg-card border border-border rounded-2xl overflow-hidden transition-all ${
+                      project.deleted
+                        ? 'opacity-70'
+                        : 'cursor-pointer hover:scale-[1.02] hover:shadow-[0_20px_40px_rgba(0,0,0,0.2)] hover:border-primary/30'
+                    }`}
                   >
                     <div className="aspect-[16/9] bg-secondary/30 relative overflow-hidden">
                       {project.thumbnail ? (
@@ -489,20 +562,41 @@ export function ProjectHome() {
                       )}
 
                       <div className="absolute top-3 right-3 flex gap-2 translate-y-[-10px] opacity-0 group-hover:translate-y-0 group-hover:opacity-100 transition-all duration-300">
-                        <button
-                          onClick={(e) => toggleFavorite(project.id, e)}
-                          className={`p-2 rounded-full backdrop-blur-md transition-colors ${
-                            project.isFavorite ? 'bg-primary text-primary-foreground' : 'bg-black/40 text-white hover:bg-black/60'
-                          }`}
-                        >
-                          <Star className={`w-4 h-4 ${project.isFavorite ? 'fill-current' : ''}`} />
-                        </button>
-                        <button
-                          onClick={(e) => deleteProject(project.id, e)}
-                          className="p-2 rounded-full bg-black/40 text-white hover:bg-destructive transition-colors backdrop-blur-md"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
+                        {sidebarFilter === 'trash' ? (
+                          <>
+                            <button
+                              onClick={(e) => restoreProject(project.id, e)}
+                              className="p-2 rounded-full bg-black/40 text-white hover:bg-green-600 transition-colors backdrop-blur-md"
+                              title="还原"
+                            >
+                              <Edit className="w-4 h-4" />
+                            </button>
+                            <button
+                              onClick={(e) => permanentlyDeleteProject(project.id, e)}
+                              className="p-2 rounded-full bg-black/40 text-white hover:bg-destructive transition-colors backdrop-blur-md"
+                              title="永久删除"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </>
+                        ) : (
+                          <>
+                            <button
+                              onClick={(e) => toggleFavorite(project.id, e)}
+                              className={`p-2 rounded-full backdrop-blur-md transition-colors ${
+                                project.isFavorite ? 'bg-primary text-primary-foreground' : 'bg-black/40 text-white hover:bg-black/60'
+                              }`}
+                            >
+                              <Star className={`w-4 h-4 ${project.isFavorite ? 'fill-current' : ''}`} />
+                            </button>
+                            <button
+                              onClick={(e) => deleteProject(project.id, e)}
+                              className="p-2 rounded-full bg-black/40 text-white hover:bg-destructive transition-colors backdrop-blur-md"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </>
+                        )}
                       </div>
 
                       <div className="absolute bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-black/80 via-black/40 to-transparent">
@@ -546,8 +640,12 @@ export function ProjectHome() {
                 {filteredProjects.map((project) => (
                   <div
                     key={project.id}
-                    onClick={() => navigate(`/editor/${project.id}`)}
-                    className="group flex items-center gap-6 p-4 bg-card border border-border rounded-2xl cursor-pointer transition-all hover:bg-secondary/20 hover:border-primary/30"
+                    onClick={() => !project.deleted && navigate(`/editor/${project.id}`)}
+                    className={`group flex items-center gap-6 p-4 bg-card border border-border rounded-2xl transition-all ${
+                      project.deleted
+                        ? 'opacity-70'
+                        : 'cursor-pointer hover:bg-secondary/20 hover:border-primary/30'
+                    }`}
                   >
                     <div className="w-32 h-20 rounded-lg overflow-hidden bg-secondary/30 flex-shrink-0">
                       {project.thumbnail ? (
@@ -584,18 +682,39 @@ export function ProjectHome() {
                     </div>
 
                     <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity pr-2">
-                      <button
-                        onClick={(e) => toggleFavorite(project.id, e)}
-                        className="p-2 rounded-lg hover:bg-secondary text-muted-foreground hover:text-primary transition-colors"
-                      >
-                        <Star className={`w-4 h-4 ${project.isFavorite ? 'fill-current' : ''}`} />
-                      </button>
-                      <button
-                        onClick={(e) => deleteProject(project.id, e)}
-                        className="p-2 rounded-lg hover:bg-secondary text-muted-foreground hover:text-destructive transition-colors"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
+                      {sidebarFilter === 'trash' ? (
+                        <>
+                          <button
+                            onClick={(e) => restoreProject(project.id, e)}
+                            className="p-2 rounded-lg hover:bg-green-600/20 text-muted-foreground hover:text-green-500 transition-colors"
+                            title="还原"
+                          >
+                            <Edit className="w-4 h-4" />
+                          </button>
+                          <button
+                            onClick={(e) => permanentlyDeleteProject(project.id, e)}
+                            className="p-2 rounded-lg hover:bg-secondary text-muted-foreground hover:text-destructive transition-colors"
+                            title="永久删除"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </>
+                      ) : (
+                        <>
+                          <button
+                            onClick={(e) => toggleFavorite(project.id, e)}
+                            className="p-2 rounded-lg hover:bg-secondary text-muted-foreground hover:text-primary transition-colors"
+                          >
+                            <Star className={`w-4 h-4 ${project.isFavorite ? 'fill-current' : ''}`} />
+                          </button>
+                          <button
+                            onClick={(e) => deleteProject(project.id, e)}
+                            className="p-2 rounded-lg hover:bg-secondary text-muted-foreground hover:text-destructive transition-colors"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </>
+                      )}
                     </div>
                   </div>
                 ))}

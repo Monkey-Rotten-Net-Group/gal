@@ -4,13 +4,15 @@ import { DndProvider } from 'react-dnd';
 import { HTML5Backend } from 'react-dnd-html5-backend';
 import {
   Sparkles, Save, Play, Settings, Image, ArrowLeft, Send,
-  Upload, Download, FileText, FolderOpen, FilePlus, Check, Loader2,
+  Upload, Download, FileText, FolderOpen, FilePlus, Check, Loader2, SlidersHorizontal,
 } from 'lucide-react';
 import { open as openDialog, save as saveDialog } from '@tauri-apps/plugin-dialog';
 import { NodePanel } from './NodePanel';
 import { FlowCanvas } from './FlowCanvas';
 import { DetailPanel } from './DetailPanel';
 import { AiSettingsDialog } from './AiSettingsDialog';
+import { PreviewOverlay } from './PreviewOverlay';
+import { AppSettingsDialog } from './AppSettingsDialog';
 import type { WebGalNode, WebGalCommandType } from '../lib/webgal-types';
 import {
   parseScene, serializeScene, saveScene, loadScene,
@@ -69,6 +71,8 @@ export function StoryEditor() {
   const [aiBusy, setAiBusy] = useState(false);
   const [aiError, setAiError] = useState<string | null>(null);
   const [aiSettingsOpen, setAiSettingsOpen] = useState(false);
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const [appSettingsOpen, setAppSettingsOpen] = useState(false);
   const aiCancelRef = useRef<(() => void) | null>(null);
   const aiStreamingIdRef = useRef<string | null>(null);
   const aiMessagesEndRef = useRef<HTMLDivElement | null>(null);
@@ -569,7 +573,18 @@ export function StoryEditor() {
               >
                 <Settings className="w-4 h-4" />
               </button>
-              <button className="p-2 rounded-md hover:bg-secondary/50 transition-colors">
+              <button
+                onClick={() => setAppSettingsOpen(true)}
+                className="p-2 rounded-md hover:bg-secondary/50 transition-colors"
+                title="编辑器设置"
+              >
+                <SlidersHorizontal className="w-4 h-4" />
+              </button>
+              <button
+                onClick={() => setPreviewOpen(true)}
+                className="p-2 rounded-md hover:bg-secondary/50 transition-colors"
+                title="预览场景"
+              >
                 <Play className="w-4 h-4" />
               </button>
 
@@ -764,6 +779,20 @@ export function StoryEditor() {
           open={aiSettingsOpen}
           onClose={() => setAiSettingsOpen(false)}
         />
+
+        <AppSettingsDialog
+          open={appSettingsOpen}
+          onClose={() => setAppSettingsOpen(false)}
+          onOpenAiSettings={() => setAiSettingsOpen(true)}
+        />
+
+        {previewOpen && projectPath && (
+          <PreviewOverlay
+            nodes={nodes}
+            projectPath={projectPath}
+            onClose={() => setPreviewOpen(false)}
+          />
+        )}
       </div>
     </DndProvider>
   );

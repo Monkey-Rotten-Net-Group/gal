@@ -1,4 +1,4 @@
-import { useRef, useEffect } from 'react';
+import { useRef, useEffect, useState, useCallback } from 'react';
 import {
   MessageCircle, GitBranch, Image as ImageIcon, User, Music, Film, Tag,
   ArrowRight, Type, Monitor, Variable, Keyboard, Wand2, Move, Award,
@@ -112,9 +112,93 @@ function getNodeSummary(node: WebGalNode): string {
   }
 }
 
-export function FlowCanvas({ nodes, selectedNode, onSelectNode }: FlowCanvasProps) {
+export function FlowCanvas({ nodes, selectedNode, onSelectNode, onUpdateNode }: FlowCanvasProps) {
   const canvasRef = useRef<HTMLDivElement>(null);
   const svgRef = useRef<SVGSVGElement>(null);
+
+  // Drag state
+  const dragRef = useRef<{
+    nodeId: string | null;
+    offsetX: number;
+    offsetY: number;
+    startX: number;
+    startY: number;
+  }>({ nodeId: null, offsetX: 0, offsetY: 0, startX: 0, startY: 0 });
+  const nodeElRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+  const [dragTick, setDragTick] = useState(0);
+
+  const handleMouseDown = useCallback((e: React.MouseEvent, nodeId: string) => {
+    // Don't start drag on interactive elements (buttons, etc.)
+    const target = e.target as HTMLElement;
+    if (target.closest('button')) return;
+
+    e.preventDefault();
+    const el = nodeElRefs.current.get(nodeId);
+    if (!el || !canvasRef.current) return;
+
+    const canvasRect = canvasRef.current.getBoundingClientRect();
+    const nodeLeft = parseInt(el.style.left, 10) || 0;
+    const nodeTop = parseInt(el.style.top, 10) || 0;
+
+    dragRef.current = {
+      nodeId,
+      offsetX: e.clientX - canvasRect.left + canvasRef.current.scrollLeft - nodeLeft,
+      offsetY: e.clientY - canvasRect.top + canvasRef.current.scrollTop - nodeTop,
+      startX: nodeLeft,
+      startY: nodeTop,
+    };
+
+    el.style.zIndex = '20';
+    el.style.cursor = 'grabbing';
+  }, []);
+
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      const drag = dragRef.current;
+      if (!drag.nodeId || !canvasRef.current) return;
+
+      const el = nodeElRefs.current.get(drag.nodeId);
+      if (!el) return;
+
+      const canvasRect = canvasRef.current.getBoundingClientRect();
+      const newX = e.clientX - canvasRect.left + canvasRef.current.scrollLeft - drag.offsetX;
+      const newY = e.clientY - canvasRect.top + canvasRef.current.scrollTop - drag.offsetY;
+
+      el.style.left = `${newX}px`;
+      el.style.top = `${newY}px`;
+
+      // Update SVG connections in real-time for smooth feedback
+      setDragTick(n => n + 1);
+    };
+
+    const handleMouseUp = () => {
+      const drag = dragRef.current;
+      if (!drag.nodeId) return;
+
+      const el = nodeElRefs.current.get(drag.nodeId);
+      if (el) {
+        const newX = parseInt(el.style.left, 10) || 0;
+        const newY = parseInt(el.style.top, 10) || 0;
+
+        if (newX !== drag.startX || newY !== drag.startY) {
+          onUpdateNode(drag.nodeId, { position: { x: newX, y: newY } });
+        }
+
+        el.style.zIndex = '';
+        el.style.cursor = '';
+      }
+
+      dragRef.current = { nodeId: null, offsetX: 0, offsetY: 0, startX: 0, startY: 0 };
+    };
+
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [onUpdateNode]);
 
   useEffect(() => {
     if (!svgRef.current) return;
@@ -126,10 +210,28 @@ export function FlowCanvas({ nodes, selectedNode, onSelectNode }: FlowCanvasProp
         const target = nodes.find(n => n.id === targetId);
         if (!target) return;
 
-        const startX = node.position.x + 140;
-        const startY = node.position.y + 44;
-        const endX = target.position.x + 140;
-        const endY = target.position.y;
+        // Use live DOM positions during drag for smoother visuals
+        let startX = node.position.x + 140;
+        let startY = node.position.y + 44;
+        let endX = target.position.x + 140;
+        let endY = target.position.y;
+
+        // Check if source node is being dragged
+        if (dragRef.current.nodeId === node.id) {
+          const el = nodeElRefs.current.get(node.id);
+          if (el) {
+            startX = (parseInt(el.style.left, 10) || node.position.x) + 140;
+            startY = (parseInt(el.style.top, 10) || node.position.y) + 44;
+          }
+        }
+        // Check if target node is being dragged
+        if (dragRef.current.nodeId === targetId) {
+          const el = nodeElRefs.current.get(targetId);
+          if (el) {
+            endX = (parseInt(el.style.left, 10) || target.position.x) + 140;
+            endY = (parseInt(el.style.top, 10) || target.position.y);
+          }
+        }
 
         const midY = (startY + endY) / 2;
 
@@ -158,7 +260,7 @@ export function FlowCanvas({ nodes, selectedNode, onSelectNode }: FlowCanvasProp
         svg.appendChild(arrow);
       });
     });
-  }, [nodes]);
+  }, [nodes, dragTick]);
 
   return (
     <div className="flex-1 relative overflow-hidden bg-background/50">
@@ -194,9 +296,14 @@ export function FlowCanvas({ nodes, selectedNode, onSelectNode }: FlowCanvasProp
             return (
               <div
                 key={node.id}
+                ref={(el) => {
+                  if (el) nodeElRefs.current.set(node.id, el);
+                  else nodeElRefs.current.delete(node.id);
+                }}
                 onClick={() => onSelectNode(node)}
+                onMouseDown={(e) => handleMouseDown(e, node.id)}
                 className={`
-                  absolute w-[280px] cursor-pointer transition-all duration-200
+                  absolute w-[280px] cursor-grab transition-all duration-200
                   ${isSelected ? 'z-10 scale-[1.03]' : 'z-0 hover:scale-[1.01]'}
                 `}
                 style={{ left: node.position.x, top: node.position.y }}
