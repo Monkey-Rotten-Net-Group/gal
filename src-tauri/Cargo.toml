@@ -12,3 +12,7 @@ tauri = { version = "2", features = [] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tauri-plugin-dialog = "2.7.0"
+genai = "0.5"
+futures = "0.3"
+dirs = "5"
+tokio = { version = "1", features = ["sync"] }
